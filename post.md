@@ -13,7 +13,9 @@ create table accounts(
 
 create table transactions(
   id serial primary key,
-  name varchar not null references accounts on update cascade on delete cascade,
+  name varchar not null references accounts
+    on update cascade
+    on delete cascade,
   amount numeric(9,2) not null,
   post_time timestamptz not null
 );
@@ -34,7 +36,10 @@ Our query that we will optimize for is finding the balance of accounts. To start
 create view account_balances as
 select
   name,
-  coalesce(sum(amount) filter (where post_time <= current_timestamp), 0) as balance
+  coalesce(
+    sum(amount) filter (where post_time <= current_timestamp),
+    0
+  ) as balance
 from accounts
   left join transactions using(name)
 group by name;
@@ -66,7 +71,10 @@ The simplest way to improve performance is to use a [materialized view](http://w
 create materialized view matview.account_balances as
 select
   name,
-  coalesce(sum(amount) filter (where post_time <= current_timestamp), 0) as balance
+  coalesce(
+    sum(amount) filter (where post_time <= current_timestamp),
+    0
+  ) as balance
 from accounts
   left join transactions using(name)
 group by name;
@@ -102,7 +110,9 @@ First, we create the table to store the materialized rows.
 
 ```sql
 create table eager.account_balances(
-  name varchar primary key references accounts on update cascade on delete cascade,
+  name varchar primary key references accounts
+    on update cascade
+    on delete cascade,
   balance numeric(9,2) not null default 0
 );
 
@@ -141,7 +151,8 @@ Account update and deletion will be handled automatically because the foreign ke
 Transaction insert, update, and delete all have one thing in common: they invalidate the account balance. So the first step is to define a refresh account balance function.
 
 ```sql
-create function eager.refresh_account_balance(_name varchar) returns void
+create function eager.refresh_account_balance(_name varchar)
+  returns void
   security definer
   language sql
 as $$
@@ -160,7 +171,8 @@ $$;
 Next we can create trigger function that calls ```refresh_account_balance``` whenever a transaction is inserted.
 
 ```sql
-create function eager.transaction_insert() returns trigger
+create function eager.transaction_insert()
+  returns trigger
   security definer
   language plpgsql
 as $$
@@ -179,7 +191,8 @@ create trigger eager_transaction_insert after insert on transactions
 For the delete of a transaction we only get the variable ```old``` instead of ```new``` row. ```old``` stores the previous value of the row.
 
 ```sql
-create function eager.transaction_delete() returns trigger
+create function eager.transaction_delete()
+  returns trigger
   security definer
   language plpgsql
 as $$
@@ -195,8 +208,9 @@ create trigger eager_transaction_delete after delete on transactions
 
 For the update of a transaction, we have to account for the possibility that the account the transaction belongs to was changed. We use the ```old``` and ```new``` values of the row to determine which account balances are invalidated and need to be refreshed.
 
-```
-create function eager.transaction_update() returns trigger
+```sql
+create function eager.transaction_update()
+  returns trigger
   security definer
   language plpgsql
 as $$
@@ -242,7 +256,9 @@ As with the eager materialization strategy, our first step is to create a table 
 
 ```sql
 create table lazy.account_balances_mat(
-  name varchar primary key references accounts on update cascade on delete cascade,
+  name varchar primary key references accounts
+    on update cascade
+    on delete cascade,
   balance numeric(9,2) not null default 0,
   expiration_time timestamptz not null
 );
@@ -271,7 +287,8 @@ create function lazy.account_insert() returns trigger
   language plpgsql
 as $$
   begin
-    insert into lazy.account_balances_mat(name, expiration_time) values(new.name, 'Infinity');
+    insert into lazy.account_balances_mat(name, expiration_time)
+      values(new.name, 'Infinity');
     return new;
   end;
 $$;
@@ -289,7 +306,8 @@ As before, account update and deletion will be handled by the the foreign key ca
 For the insert of a transaction, we update the ```expiration_time``` if the ```post_time``` of the transaction is less than the current ```expiration_time```. This means the update only happens when absolutely necessary. If the account will already be considered stale at the ```post_time``` of the new record we avoid the IO cost of the write.
 
 ```sql
-create function lazy.transaction_insert() returns trigger
+create function lazy.transaction_insert()
+  returns trigger
   security definer
   language plpgsql
 as $$
@@ -310,8 +328,9 @@ create trigger lazy_transaction_insert after insert on transactions
 
 Unlike when a transaction is inserted, when a transaction is updated, it is not possible to compute the new account ```expiration_time``` without reading the account's transactions. This makes it cheaper to simply invalidate the account balance. We will simply set ```expiration_time``` to ```-Infinity```, a special value defined as being less than all other values. This ensures that the row will be considered stale.
 
-```
-create function lazy.transaction_update() returns trigger
+```sql
+create function lazy.transaction_update()
+  returns trigger
   security definer
   language plpgsql
 as $$
@@ -334,7 +353,8 @@ create trigger lazy_transaction_update after update on transactions
 For transaction deletion, we invalidate the row if the ```post_time``` is less than or equal to the current ```expiration_time```. But if at is after the current ```expiration_time``` we do not have to do anything.
 
 ```sql
-create function lazy.transaction_delete() returns trigger
+create function lazy.transaction_delete()
+  returns trigger
   security definer
   language plpgsql
 as $$
@@ -357,14 +377,21 @@ create trigger lazy_transaction_delete after delete on transactions
 The penultimate step is to define a function to refresh a materialized row.
 
 ```sql
-create function lazy.refresh_account_balance(_name varchar) returns lazy.account_balances_mat
+create function lazy.refresh_account_balance(_name varchar)
+  returns lazy.account_balances_mat
   security definer
   language sql
 as $$
   with t as (
     select
-      coalesce(sum(amount) filter (where post_time <= current_timestamp), 0) as balance,
-      coalesce(min(post_time) filter (where current_timestamp < post_time), 'Infinity') as expiration_time
+      coalesce(
+        sum(amount) filter (where post_time <= current_timestamp),
+        0
+      ) as balance,
+      coalesce(
+        min(post_time) filter (where current_timestamp < post_time),
+        'Infinity'
+      ) as expiration_time
     from transactions
     where name=_name
   )
@@ -395,7 +422,7 @@ where abm.expiration_time <= current_timestamp;
 
 To retrieve the all accounts with negative balances balances we simply select from the ```account_balances``` view.
 
-```
+```sql
 select * from lazy.account_balances where balance < 0;
 ```
 
