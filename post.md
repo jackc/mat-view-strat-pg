@@ -119,11 +119,11 @@ create table eager.account_balances(
 create index on eager.account_balances (balance);
 ```
 
-Now we need to think of every way that ```account_balances``` could become stale.
+Now we need to think of every way that `account_balances` could become stale.
 
 ### An account is inserted
 
-On account insertion we need to create a ```account_balances``` record with a zero balance for the new account.
+On account insertion we need to create a `account_balances` record with a zero balance for the new account.
 
 ```sql
 create function eager.account_insert() returns trigger
@@ -140,11 +140,11 @@ create trigger account_insert after insert on accounts
     for each row execute procedure eager.account_insert();
 ```
 
-The syntax for [create function](http://www.postgresql.org/docs/9.4/static/sql-createfunction.html) and [create trigger](http://www.postgresql.org/docs/9.4/static/sql-createtrigger.html) is quite extensive. Refer to the documentation for details. But the summary explanation is this: We create the function ```eager.account_insert``` as a trigger function that will run with the permissions of the user who created it (```security definer```). Inside a insert trigger function, ```new``` is a variable that holds the new record.
+The syntax for [create function](http://www.postgresql.org/docs/9.4/static/sql-createfunction.html) and [create trigger](http://www.postgresql.org/docs/9.4/static/sql-createtrigger.html) is quite extensive. Refer to the documentation for details. But the summary explanation is this: We create the function `eager.account_insert` as a trigger function that will run with the permissions of the user who created it (`security definer`). Inside a insert trigger function, `new` is a variable that holds the new record.
 
 ### An account is updated or deleted
 
-Account update and deletion will be handled automatically because the foreign key to account is declared as ```on update cascade on delete cascade```.
+Account update and deletion will be handled automatically because the foreign key to account is declared as `on update cascade on delete cascade`.
 
 ### A transaction is inserted, updated, or deleted
 
@@ -168,7 +168,7 @@ as $$
 $$;
 ```
 
-Next we can create trigger function that calls ```refresh_account_balance``` whenever a transaction is inserted.
+Next we can create trigger function that calls `refresh_account_balance` whenever a transaction is inserted.
 
 ```sql
 create function eager.transaction_insert()
@@ -188,7 +188,7 @@ create trigger eager_transaction_insert after insert on transactions
 
 [Perform](http://www.postgresql.org/docs/9.4/static/plpgsql-statements.html#PLPGSQL-STATEMENTS-SQL-NORESULT) is how you execute a query where you do not care about the result in PL/pgSQL.
 
-For the delete of a transaction we only get the variable ```old``` instead of ```new``` row. ```old``` stores the previous value of the row.
+For the delete of a transaction we only get the variable `old` instead of `new` row. `old` stores the previous value of the row.
 
 ```sql
 create function eager.transaction_delete()
@@ -206,7 +206,7 @@ create trigger eager_transaction_delete after delete on transactions
     for each row execute procedure eager.transaction_delete();
 ```
 
-For the update of a transaction, we have to account for the possibility that the account the transaction belongs to was changed. We use the ```old``` and ```new``` values of the row to determine which account balances are invalidated and need to be refreshed.
+For the update of a transaction, we have to account for the possibility that the account the transaction belongs to was changed. We use the `old` and `new` values of the row to determine which account balances are invalidated and need to be refreshed.
 
 ```sql
 create function eager.transaction_update()
@@ -228,7 +228,7 @@ create trigger eager_transaction_update after update on transactions
     for each row execute procedure eager.transaction_update();
 ```
 
-Finally, with all this set up we need to initialize the ```account_balances``` table.
+Finally, with all this set up we need to initialize the `account_balances` table.
 
 ```sql
 -- Create the balance rows
@@ -240,7 +240,7 @@ select eager.refresh_account_balance(name)
 from accounts;
 ```
 
-To query the negative account balances we simply select from the ```acount_balances``` table.
+To query the negative account balances we simply select from the `acount_balances` table.
 
 ```sql
 select * from eager.account_balances where balance < 0;
@@ -267,7 +267,7 @@ create index on lazy.account_balances_mat (balance);
 create index on lazy.account_balances_mat (expiration_time);
 ```
 
-We will create the initial rows for ```lazy.account_balances_mat``` with ```expiration_time``` as ```-Infinity``` to mark them as dirty.
+We will create the initial rows for `lazy.account_balances_mat` with `expiration_time` as `-Infinity` to mark them as dirty.
 
 ```sql
 insert into lazy.account_balances_mat(name, expiration_time)
@@ -275,11 +275,11 @@ select name, '-Infinity'
 from accounts;
 ```
 
-The same data changes that could invalidate materialized rows in the eager strategy must be handled with the lazy strategy. The difference is that the triggers will only update ```expiration_time``` -- they will not actually recalculate the data.
+The same data changes that could invalidate materialized rows in the eager strategy must be handled with the lazy strategy. The difference is that the triggers will only update `expiration_time` -- they will not actually recalculate the data.
 
 ### An account is inserted
 
-As with the eager strategy, on account insertion we need to create a ```_account_balances``` record with a zero balance for the new account. But we also need to provide an ```expiration_time```. The balance for an account with no transactions will be valid forever, so we provide the special PostgreSQL value ```Infinity``` as the ```expiration_time```. ```Infinity``` is defined as greater than any other value.
+As with the eager strategy, on account insertion we need to create a `_account_balances` record with a zero balance for the new account. But we also need to provide an `expiration_time`. The balance for an account with no transactions will be valid forever, so we provide the special PostgreSQL value `Infinity` as the `expiration_time`. `Infinity` is defined as greater than any other value.
 
 ```sql
 create function lazy.account_insert() returns trigger
@@ -303,7 +303,7 @@ As before, account update and deletion will be handled by the the foreign key ca
 
 ### A transaction is inserted
 
-For the insert of a transaction, we update the ```expiration_time``` if the ```post_time``` of the transaction is less than the current ```expiration_time```. This means the update only happens when absolutely necessary. If the account will already be considered stale at the ```post_time``` of the new record we avoid the IO cost of the write.
+For the insert of a transaction, we update the `expiration_time` if the `post_time` of the transaction is less than the current `expiration_time`. This means the update only happens when absolutely necessary. If the account will already be considered stale at the `post_time` of the new record we avoid the IO cost of the write.
 
 ```sql
 create function lazy.transaction_insert()
@@ -326,7 +326,7 @@ create trigger lazy_transaction_insert after insert on transactions
 
 ### A transaction is updated
 
-Unlike when a transaction is inserted, when a transaction is updated, it is not possible to compute the new account ```expiration_time``` without reading the account's transactions. This makes it cheaper to simply invalidate the account balance. We will simply set ```expiration_time``` to ```-Infinity```, a special value defined as being less than all other values. This ensures that the row will be considered stale.
+Unlike when a transaction is inserted, when a transaction is updated, it is not possible to compute the new account `expiration_time` without reading the account's transactions. This makes it cheaper to simply invalidate the account balance. We will simply set `expiration_time` to `-Infinity`, a special value defined as being less than all other values. This ensures that the row will be considered stale.
 
 ```sql
 create function lazy.transaction_update()
@@ -350,7 +350,7 @@ create trigger lazy_transaction_update after update on transactions
 
 ### A transaction is deleted
 
-For transaction deletion, we invalidate the row if the ```post_time``` is less than or equal to the current ```expiration_time```. But if at is after the current ```expiration_time``` we do not have to do anything.
+For transaction deletion, we invalidate the row if the `post_time` is less than or equal to the current `expiration_time`. But if at is after the current `expiration_time` we do not have to do anything.
 
 ```sql
 create function lazy.transaction_delete()
@@ -404,9 +404,9 @@ as $$
 $$;
 ```
 
-This function uses a [common table expression](http://www.postgresql.org/docs/9.4/static/queries-with.html) and aggregate filters to find ```balance``` and ```expiration_time``` in a single select. Then results are then used to update ```acount_balances_mat```.
+This function uses a [common table expression](http://www.postgresql.org/docs/9.4/static/queries-with.html) and aggregate filters to find `balance` and `expiration_time` in a single select. Then results are then used to update `acount_balances_mat`.
 
-Finally, we define the ```account_balances``` view. The top part of the query reads fresh rows from ```account_balances_mat```. The bottom part reads and refreshes rows that are stale.
+Finally, we define the `account_balances` view. The top part of the query reads fresh rows from `account_balances_mat`. The bottom part reads and refreshes rows that are stale.
 
 ```sql
 create view lazy.account_balances as
@@ -420,7 +420,7 @@ from lazy.account_balances_mat abm
 where abm.expiration_time <= current_timestamp;
 ```
 
-To retrieve the all accounts with negative balances balances we simply select from the ```account_balances``` view.
+To retrieve the all accounts with negative balances balances we simply select from the `account_balances` view.
 
 ```sql
 select * from lazy.account_balances where balance < 0;
